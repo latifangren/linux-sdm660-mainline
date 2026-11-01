@@ -1,0 +1,45 @@
+name: Build SDM660 Kernel (GitHub Runner)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Linux Kernel
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            bison flex libssl-dev libelf-dev bc kmod zstd
+
+      - name: Configure Kernel
+        run: |
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig sdm660_defconfig
+
+      - name: Build Kernel Image & DTBs
+        run: |
+          make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- Image.gz dtbs
+
+      - name: Build & Package Modules
+        run: |
+          make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules
+          mkdir -p output/boot
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- INSTALL_MOD_PATH=output/modules INSTALL_MOD_STRIP=1 modules_install
+          cp arch/arm64/boot/Image.gz output/boot/
+          find arch/arm64/boot/dts/qcom/ -name "*whyred*.dtb" -exec cp {} output/boot/ \;
+          find arch/arm64/boot/dts/qcom/ -name "*sdm660*.dtb" -exec cp {} output/boot/ \;
+          tar -czf sdm660-kernel-build.tar.gz -C output .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdm660-kernel-${{ github.sha }}
+          path: sdm660-kernel-build.tar.gz
+          retention-days: 7
